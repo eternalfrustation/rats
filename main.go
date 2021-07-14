@@ -13,17 +13,17 @@ import (
 )
 
 const (
-	W = 1000
-	H = 1000
+	W = 5000
+	H = 5000
 )
 
 type Ctx struct {
 	*image.NRGBA
-	Wg *sync.WaitGroup
+	*sync.WaitGroup
 }
 
 func NewCtx(w, h int) *Ctx {
-	return &Ctx{image.NewNRGBA(image.Rect(0, 0, W, H)), &sync.WaitGroup{}}
+	return &Ctx{image.NewNRGBA(image.Rect(0, 0, w, h)), &sync.WaitGroup{}}
 }
 func (c *Ctx) SetPix(x, y int, clr *color.NRGBA) {
 	if x >= c.Bounds().Dx()-1 || x <= 0 || y >= c.Bounds().Dy()-1 || y <= 0 {
@@ -55,9 +55,9 @@ func (c *Ctx) DrawDisc(h0, k0 int, r0 float64, clr0 *color.NRGBA) {
 	var y0 int
 
 	for x0 := h0; x0-h0 < int(0.75*r0); x0++ {
-		c.Wg.Add(1)
+		c.Add(1)
 		go func(x, y, h, k int, r float64, clr *color.NRGBA) {
-			defer c.Wg.Done()
+			defer c.Done()
 			y = YPosCircle(h, k, x, r)
 			c.DrawVerticalLine(x, y, y-2*(y-k), clr)
 			c.DrawVerticalLine(y, x-2*(x-h), x, clr)
@@ -134,9 +134,9 @@ func (c *Ctx) DrawThiccEllipse(h, k int, a, b, thiccness float64, clr *color.NRG
 
 func (c *Ctx) DrawFilledEllipse(h0, k0 int, a0, b0 float64, clr0 *color.NRGBA) {
 	for x0 := h0; x0-h0 < int(a0); x0++ {
-		c.Wg.Add(1)
+		c.Add(1)
 		go func(x, h, k int, a, b float64, clr *color.NRGBA) {
-			defer c.Wg.Done()
+			defer c.Done()
 			y := YPosEllipse(h, k, x, a, b)
 			//	fmt.Printf("h: %d, k: %d, x: %d, a: %f, b: %f\n", h,k,x,a,b)
 			c.DrawVerticalLine(x, y-2*(y-k), y, clr)
@@ -152,19 +152,106 @@ func (c *Ctx) DrawFilledEllipse(h0, k0 int, a0, b0 float64, clr0 *color.NRGBA) {
 
 // Draws a line from x0, y0 to y1, y1
 // NOTE: y0 < y1 and x0 < x1
-func (c *Ctx) DrawLine(x0, y0, x1, y1 int, clr *color.NRGBA) {
-	x2, y2, x3, y3 := x0, y0, x1, y1
-	x0, x1 = Min(x2, x3), Max(x2, x3)
-	y0, y1 = Min(y2, y3), Min(y2, y3)
 
-	m := float64(y1-y0) / float64(x1-x0)
-	if m > 1 {
-		for x := x0; x < x1; x++ {
-			c.SetPix(int(m*float64(x-x0)+float64(y0)), x, clr)
+func (c *Ctx) DrawLineLow(x0, y0, x1, y1 int, clr *color.NRGBA) {
+	dx := x1 - x0
+	dy := y1 - y0
+	yi := 1
+	if dy < 0 {
+		yi = -1
+		dy = -dy
+	}
+	D := (2 * dy) - dx
+	y := y0
+
+	for x := x0; x < x1; x++ {
+		c.SetPix(x, y, clr)
+		if D > 0 {
+			y = y + yi
+			D = D + (2 * (dy - dx))
+		} else {
+			D = D + 2*dy
+		}
+	}
+}
+func (c *Ctx) DrawLineHigh(x0, y0, x1, y1 int, clr *color.NRGBA) {
+	dx := x1 - x0
+	dy := y1 - y0
+	xi := 1
+	if dx < 0 {
+		xi = -1
+		dx = -dx
+	}
+	D := (2 * dx) - dy
+	x := x0
+
+	for y := y0; y <= y1; y++ {
+		c.SetPix(x, y, clr)
+		if D > 0 {
+			x = x + xi
+			D = D + (2 * (dx - dy))
+		} else {
+			D = D + 2*dx
+		}
+	}
+}
+
+func (c *Ctx) DrawLine(x0, y0, x1, y1 int, clr *color.NRGBA) {
+	if Abs(y1-y0) < Abs(x1-x0) {
+		if x0 > x1 {
+			c.DrawLineLow(x1, y1, x0, y0, clr)
+		} else {
+			c.DrawLineLow(x0, y0, x1, y1, clr)
 		}
 	} else {
-		for x := x0; x < x1; x++ {
-			c.SetPix(x, int(m*float64(x-x0)+float64(y0)), clr)
+		if y0 > y1 {
+			c.DrawLineHigh(x1, y1, x0, y0, clr)
+		} else {
+			c.DrawLineHigh(x0, y0, x1, y1, clr)
+		}
+	}
+}
+func (c *Ctx) DrawThiccLine(x0, y0, x1, y1 int, wd float64, clr *color.NRGBA) {
+	dx := Abs(x1 - x0)
+	sx := Sign(x1 - x0)
+	dy := Abs(y1 - y0)
+	sy := Sign(y1 - y0)
+	err := dx - dy
+	var e2, x2, y2 int /* error value e_xy */
+	var ed float64
+	if dx+dy == 0 {
+		ed = 1
+	} else {
+		ed = math.Sqrt(float64(dx*dx + dy + dy))
+	}
+	r, g, b, a := clr.RGBA()
+	for wd = (wd + 1) / 2; true; func() {}() { /* pixel loop */
+		c.SetPix(x0, y0, NRGBA(r, g, b, uint32(math.Max(float64(a), 255*(float64(Abs(err-dx+dy))/ed-wd+1)))))
+		e2 = err
+		x2 = x0
+		if 2*e2 >= -dx { /* x step */
+			y2 = y0
+			for e2 += dy; float64(e2) < ed*wd && (y1 != y2 || dx > dy); e2 += dx {
+				y2 += sy
+				c.SetPix(x0, y2, NRGBA(r, g, b, uint32(math.Max(float64(a), 255*(float64(Abs(e2))/ed-wd+1)))))
+			}
+			if x0 == x1 {
+				break
+			}
+			e2 = err
+			err -= dy
+			x0 += sx
+		}
+		if 2*e2 <= dy { /* y step */
+			for e2 = dx - e2; float64(e2) < ed*wd && (x1 != x2 || dx < dy); e2 += dy {
+				x2 += sx
+				c.SetPix(x2, y0, NRGBA(r, g, b, uint32(math.Max(float64(a), 255*(float64(Abs(e2))/ed-wd+1)))))
+			}
+			if y0 == y1 {
+				break
+			}
+			err += dx
+			y0 += sy
 		}
 	}
 }
@@ -184,59 +271,30 @@ func (c *Ctx) DrawLineSlope(x0, y0, x1, y1 int, m float64, clr *color.NRGBA) {
 	}
 }
 
-func (c *Ctx) DrawThiccLine(x0, y0, x1, y1 int, thiccness float64, clr *color.NRGBA) {
-
-	x2, y2, x3, y3 := x0, y0, x1, y1
-	x0, x1 = Min(x2, x3), Max(x2, x3)
-	y0, y1 = Min(y2, y3), Max(y2, y3)
-	if x0 == x1 {
-		for x := x0 - int(thiccness); x < x0 + int(thiccness); x ++ {
-			c.DrawVerticalLine(x, y0, y1, clr)
-		}
-		return
-	}
-	if y0 == y1 {
-		for y := y0 - int(thiccness); y < y0 + int(thiccness); y++ {
-			c.DrawHorizontalLine(y, x0, x1, clr)
-		}
-		return
-	}
-	m := float64(y1-y0) / float64(x1-x0)
-	if m < 1 {
-
-		dy := 2 * thiccness / math.Sqrt(m*m+1)
-		offY := int(dy / 2)
-		offX := int(m * float64(offY))
-		for i, y := range c.GetLineY(x0-offX, y0-offY, x1+offX, y1+offY) {
-			c.DrawVerticalLine(x0+i, y, y+int(dy), clr)
-
-		}
-	} else {
-		m0 := -1/m
-		dy := 2 * thiccness * math.Sqrt(1+1/m0*m0)
-		offY := int(dy / 2)
-		offX := int(m * float64(offY))
-		for i, y := range c.GetLineY(x0-offX, y0-offY, x1+offX, y1+offY) {
-			c.DrawVerticalLine(x0+i, y, y+int(dy), clr)
-		}
-	}
+func NRGBA(r, g, b, a uint32) *color.NRGBA {
+	return &color.NRGBA{uint8(r), uint8(g), uint8(b), uint8(a)}
 }
 
 // Draws a line from x0, y0 to y1, y1
 // NOTE: y0 < y1 and x0 < x1
-func (c *Ctx) GetLineY(x0, y0, x1, y1 int) []int {
+func GetLineY(x0, y0, x1, y1 int) []int {
+	if x1 < x0 {
+		x2, y2, x3, y3 := x0, y0, x1, y1
+		x0, y0, x1, y1 = x3, y3, x2, y2
+	}
 	m := float64(y1-y0) / float64(x1-x0)
-	ys := make([]int, x1-x0)
-	for x := x0; x < x1; x++ {
+	ys := make([]int, x1-x0+1)
+
+	for x := x0; x <= x1; x++ {
 		ys[x-x0] = int(m*float64(x-x0) + float64(y0))
 	}
 	return ys
 }
 
 // clears the image to alpha 50 black image
-func (c *Ctx) Clear() {
-	for i := 0; i < len(c.Pix); i++ {
-		c.Pix[i] = 50
+func (c *Ctx) Clear(r, g, b, a uint8) {
+	for i := 0; i < len(c.Pix)/4; i++ {
+		c.Pix[4*i], c.Pix[4*i+1], c.Pix[4*i+2], c.Pix[4*i+3] = r, g, b, a
 	}
 }
 
@@ -264,60 +322,87 @@ func XPosEllipse(h, k, y int, a, b float64) int {
 
 }
 
-func (c *Ctx) DrawVerticalLine(x, y0, y1 int, clr *color.NRGBA) {
-	c.Wg.Add(1)
+func (c *Ctx) DrawHorizontalLine(y, x0, x1 int, clr *color.NRGBA) {
+	c.Add(1)
+	if x1 < x0 {
+		x2, x3 := x0, x1
+		x0, x1 = x3, x2
+	}
+
 	go func() {
-		defer c.Wg.Done()
-	for i := y0; i <= y1; i++ {
-		c.SetPix(x, i, clr)
-	}}()
+		defer c.Done()
+		for i := x0; i <= x1; i++ {
+			c.SetPix(i, y, clr)
+		}
+	}()
+}
+func (c *Ctx) DrawVerticalLine(x, y0, y1 int, clr *color.NRGBA) {
+	c.Add(1)
+
+	if y1 < H/2-H/4 {
+		fmt.Printf("y1: %d \n", y1)
+	}
+	if y0 < H/2-H/4 {
+		fmt.Printf("y0: %d \n", y0)
+	}
+	if y1 < y0 {
+		y2, y3 := y0, y1
+		y0, y1 = y3, y2
+	}
+
+	go func() {
+		defer c.Done()
+		for i := y0; i <= y1; i++ {
+			c.SetPix(x, i, clr)
+		}
+	}()
 }
 
-func (c *Ctx) DrawHorizontalLine(y, x0, x1 int, clr *color.NRGBA) {
-	c.Wg.Add(1)
-	go func() {
-		defer c.Wg.Done()
-	for i := x0; i <= x1; i++ {
-		c.SetPix(i, y, clr)
-	}}()
+func Sign(i int) int {
+	if i >= 0 {
+		return 1
+	}
+	return -1
+}
+
+func Abs(i int) int {
+	if i >= 0 {
+		return i
+	}
+	return -i
 }
 func main() {
 	rand.Seed(time.Now().Unix())
 	img := NewCtx(W, H)
-	img.Clear()
+	img.Clear(0, 0, 0, 255)
 	start := time.Now()
 	//	img.DrawFilledEllipse(W/2, H/2, W/4, H/3, &color.NRGBA{62, 255, 255, 255})
-//	img.DrawThiccCircle(W/2, H/2, H/4, H/10, &color.NRGBA{76, 100, 220, 255})
-//	img.Wg.Wait()
-//	fmt.Println("Circle:", time.Now().Sub(start))
-//	img.Save("circle.png")
-//	img.Clear()
-//	start = time.Now()
+	//img.DrawThiccCircle(W/2, H/2, H/4, H/10, &color.NRGBA{76, 100, 220, 255})
+	//	img.Wg.Wait()
+	//	fmt.Println("Circle:", time.Now().Sub(start))
+	//	img.Save("circle.png")
+	//	img.Clear(0, 0, 0, 255)
+	//	start = time.Now()
 	//	img.DrawFilledEllipse(W/2, H/2, W/4, H/3, &color.NRGBA{62, 255, 255, 255})
-//	img.DrawThiccEllipse(W/2, H/2, H/4, H/6, H/10, &color.NRGBA{76, 200, 120, 255})
-//
-//	img.Wg.Wait()
-//	fmt.Println("Ellipse:", time.Now().Sub(start))
-//	img.Save("Ellipse.png")
-//	img.Clear()
-	start = time.Now()
-	img.DrawThiccLine(W/2, 0, W/2, H, 10, &color.NRGBA{27, 219, 150, 255})
-	img.Wg.Wait()
+	//	img.DrawThiccEllipse(W/2, H/2, H/4, H/6, H/10, &color.NRGBA{76, 200, 120, 255})
+	//
+	//	img.Wg.Wait()
+	//	fmt.Println("Ellipse:", time.Now().Sub(start))
+	//	img.Save("Ellipse.png")
+	//	img.Clear(0, 0, 0, 255)
+	//	start = time.Now()
+	for i := 0.0; i < 2*math.Pi; i+= math.Pi/360 {
+		x := W/2 + W/4*math.Cos(i)
+		y := H/2 + H/4*math.Sin(i)
+		img.DrawThiccLine(W/2, H/2, int(x), int(y), 20, &color.NRGBA{byte(rand.Intn(255)), byte(rand.Intn(255)), byte(rand.Intn(255)), 255})
+	}
+	//img.DrawThiccLine(50, H/2-2, H-50, H/2+3, 50, &color.NRGBA{210, 192, 27, 255})
+
+	//img.DrawThiccLine(W/2, H/2, W - W/8, H/2 - H/8, 10, &color.NRGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255})
+	img.Wait()
+	img.DrawDisc(W/2, H/2, H/150, &color.NRGBA{76, 100, 220, 255})
+	img.Wait()
 	fmt.Println("Line:", time.Now().Sub(start))
 
 	img.Save("Line.png")
-}
-func Min(x, y int) int {
-	if x < y {
-		return x
-	} else {
-		return y
-	}
-}
-func Max(x, y int) int {
-	if x > y {
-		return x
-	} else {
-		return y
-	}
 }
